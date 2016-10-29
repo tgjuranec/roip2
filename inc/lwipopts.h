@@ -54,7 +54,7 @@
    located in peripheral RAM. In copied mode, they are located in
    internal IRAM */
 #define PBUF_POOL_SIZE                  8 //default 7
-#define MEMP_NUM_UDP_PCB                4
+#define MEMP_NUM_UDP_PCB                3
 /* No padding needed */
 #define ETH_PAD_SIZE                    0
 
@@ -77,7 +77,7 @@
 #define LWIP_PLATFORM_BYTESWAP          0
 
 /* Non-static memory, used with DMA pool */
-#define MEM_SIZE                        (13* 1024) //default 12*1024
+#define MEM_SIZE                        (12* 1024) //default 12*1024
 
 /* Raw interface not needed */
 #define LWIP_RAW                        1
@@ -105,6 +105,8 @@
 #define LINK_STATS                      0
 #define LWIP_STATS_DISPLAY              0
 
+
+#define ETHARP_TRUST_IP_MAC 1
 /* There are more *_DEBUG options that can be selected.
    See opts.h. Make sure that LWIP_DEBUG is defined when
    building the code to use debug. */

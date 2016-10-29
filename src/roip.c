@@ -33,14 +33,19 @@
 #include "arch/lpc17xx_40xx_emac.h"
 #include "arch/lpc_arch.h"
 // TODO: insert other include files here
-
+#include <string.h>
 
 #include <adc.h>
+#include <http.h>
 #include <speex_udp.h>
+#include <serial.h>
+#include <parser.h>
+#include <iap.h>
 // TODO: insert other definitions and declarations here
 
 /* NETIF data */
-static struct netif lpc_netif;
+struct netif lpc_netif;
+
 
 
 /* Sets up system hardware */
@@ -59,8 +64,12 @@ static void prvSetupHardware(void)
 
 
 
+struct flash_data *fd;
+
+
 int main(void) {
-	static char idnum[] = "12584";
+
+
 #if defined (__USE_LPCOPEN)
     // Read clock settings and update SystemCoreClock variable
     SystemCoreClockUpdate();
@@ -70,14 +79,14 @@ int main(void) {
     Board_Init();
     // Set the LED to the state of "On"
     Board_LED_Set(0, true);
-
+    ip_addr_t ipaddr, netmask, gw, server1_ip,server2_ip;
 	uint32_t physts;
-	ip_addr_t ipaddr, netmask, gw, remote_ip;
+
 	static int prt_ip = 0;
 
 	prvSetupHardware();
 	ADC_init(0,25,ADC_CH2,8000,NULL,NULL);
-
+	serial_init();
 	/* Initialize LWIP */
 
 	lwip_init();
@@ -95,7 +104,31 @@ int main(void) {
 	IP4_ADDR(&netmask, 255, 255, 255, 0);
 
 #endif
-	IP4_ADDR(&remote_ip, 192, 168, 1, 198);
+	IP4_ADDR(&server1_ip, 192, 168, 1, 198);
+	IP4_ADDR(&server2_ip, 192, 168, 1, 197);
+
+	/* READ FLASH MEMORY
+	 * IP assignment from flash memory
+	 * get MAC address and assign to MAC layer
+	 * get password
+	 *
+	 */
+
+	get_flash();
+	char *pass;
+	fd = (struct flash_data *) flash_buff;
+	if(ip_addr_netcmp(&fd->ip_local,&fd->ip_gw,&fd->ip_nm) \
+			&&(ip_addr_netcmp(&fd->ip_local,&fd->ser1,&fd->ip_nm) \
+				|| ip_addr_netcmp(&fd->ip_local,&fd->ser2,&fd->ip_nm))){
+		ip_addr_copy(ipaddr,fd->ip_local);
+		ip_addr_copy(gw,fd->ip_gw);
+		ip_addr_copy(netmask,fd->ip_nm);
+		ip_addr_copy(server1_ip,fd->ser1);
+		ip_addr_copy(server2_ip,fd->ser2);
+	}
+	pass = &fd->password[0];
+
+
 	/* Add netif interface for lpc17xx_8x */
 	netif_add(&lpc_netif, &ipaddr, &netmask, &gw, NULL, lpc_enetif_init,
 			  ethernet_input);
@@ -105,9 +138,10 @@ int main(void) {
 #if LWIP_DHCP
 	dhcp_start(&lpc_netif);
 #endif
-	spudp_init(&ipaddr);
-	ADC_start(ADC_CH2);
+	spudp_init(&ipaddr,&server1_ip, &server2_ip);
 	http_init();
+	radio_comm_init();
+
 	/* This could be done in the sysTick ISR, but may stay in IRQ context
 	   too long, so do this stuff with a background loop. */
 	while (1) {
@@ -163,12 +197,22 @@ int main(void) {
 
 			DEBUGOUT("Link connect status: %d\r\n", ((physts & PHY_LINK_CONNECTED) != 0));
 		}
+
+
+		//listening UART connection
+		radio_comm();
+		//check connection with server
+		spudp_control_send();
+
 		if(n_conv_finished){
-			n_conv_finished = 0;
-			if(spudp_send(idnum,block_result,BLOCK_SIZE,&remote_ip)!= BLOCK_SIZE){
+			if(spudp_send(ssi,gssi, ssi2,block_result,BLOCK_SIZE)!= BLOCK_SIZE){
 
 			}
-
+			n_conv_finished = 0;
+		}
+		if(sysreset_req){
+			if((sys_now()- sysreset_req) > 500)
+				NVIC_SystemReset();
 		}
 
 

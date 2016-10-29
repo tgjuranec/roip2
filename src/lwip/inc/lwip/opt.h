@@ -65,7 +65,7 @@
  * use lwIP facilities.
  */
 #ifndef NO_SYS
-#define NO_SYS                          0
+#define NO_SYS                          1
 #endif
 
 /**

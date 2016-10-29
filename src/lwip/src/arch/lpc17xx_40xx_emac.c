@@ -45,6 +45,8 @@
 #include "chip.h"
 #include "board.h"
 #include "lpc_phy.h"
+#include <iap.h>
+#include <roip.h>
 
 #include <string.h>
 
@@ -817,6 +819,15 @@ void lpc_emac_set_speed(int mbs_100)
 	}
 }
 
+
+/* Returns the MAC address assigned to this board */
+void GetMacADDR(uint8_t *mcaddr)
+{
+	uint8_t *boardmac = &fd->mac_address[0];
+	memcpy(mcaddr, boardmac, 6);
+}
+
+
 /* LWIP 17xx/40xx EMAC initialization function */
 err_t lpc_enetif_init(struct netif *netif)
 {
@@ -827,7 +838,8 @@ err_t lpc_enetif_init(struct netif *netif)
 	lpc_enetdata.pnetif = netif;
 
 	/* set MAC hardware address */
-	Board_ENET_GetMacADDR(netif->hwaddr);
+	/*Board_ENET_GetMacADDR(netif->hwaddr); -> OBSOLETE!!! we don't need fixed address*/
+	GetMacADDR(netif->hwaddr);
 	netif->hwaddr_len = ETHARP_HWADDR_LEN;
 
 	/* maximum transfer unit */

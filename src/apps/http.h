@@ -9,5 +9,5 @@
 #define APPS_HTTP_H_
 
 void http_init(void);
-
+extern uint32_t sysreset_req;
 #endif /* APPS_HTTP_H_ */
