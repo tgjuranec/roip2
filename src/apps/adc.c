@@ -51,13 +51,18 @@ void ADC_init(uint8_t adc_port, uint8_t adc_pin,
 }
 
 inline void ADC_start(ADC_CHANNEL_T ch){
+	__disable_irq();
 	Chip_ADC_Int_SetChannelCmd(LPC_ADC,ch,ENABLE);	//enable channel
 	Chip_ADC_SetStartMode(LPC_ADC,ADC_START_NOW,ADC_TRIGGERMODE_FALLING);
+	__enable_irq();
 	NVIC_EnableIRQ(ADC_IRQn);
 }
 
 inline void ADC_stop(ADC_CHANNEL_T ch){
+	NVIC_DisableIRQ(ADC_IRQn);
+	__disable_irq();
 	Chip_ADC_Int_SetChannelCmd(LPC_ADC,ch,DISABLE);	//enable channel
+	__enable_irq();
 }
 
 void ADC_error(){
