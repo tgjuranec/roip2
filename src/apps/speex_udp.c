@@ -10,7 +10,7 @@
 #include <string.h>
 #include <assert.h>
 #include <board.h>
-
+#include <arch/lpc_arch.h>
 #define BLOCK_LENGTH 160U
 void *enc_state;
 SpeexBits enc_bits;
@@ -20,11 +20,11 @@ SpeexBits enc_bits;
 /*
  * DATA UDP STATE
  */
-typedef enum spudp_state_t{
-	DISCONNECTED,
-	SERVER1,
-	SERVER2
-} spudp_state;
+#define SPUDP_CONNECTED (1 << 7)		//7th bit is flag for connected
+#define SPUDP_SERVER_MASK (0X7F)		//0-6 bits are order number of server
+#define SPUDP_SERVER1 1
+#define SPUDP_SERVER2 2
+typedef uint8_t spudp_state;
 
 struct spudp_data{
 	struct udp_pcb *p;
@@ -56,19 +56,14 @@ void handleAudioInput(void *arg, struct udp_pcb *pcb, struct pbuf *pb,\
 
 void handleControlInput(void *arg, struct udp_pcb *pcb, struct pbuf *pb,\
 		ip_addr_t *addr, u16_t port){
-	if(dt.st == SERVER1){
-		if(ip_addr_cmp(addr,&dt.server1)){
-			tm_ctlpacket_received = sys_now();
-		}
+
+	if(ip_addr_cmp(addr,&dt.server1)){
+		dt.st = SPUDP_CONNECTED | SPUDP_SERVER1;
 	}
-	else if (dt.st == SERVER2){
-		if(ip_addr_cmp(addr,&dt.server1)){
-			tm_ctlpacket_received = sys_now();
-		}
+	else if(ip_addr_cmp(addr,&dt.server2)){
+		dt.st = SPUDP_CONNECTED | SPUDP_SERVER1;
 	}
-	else {
-		//errror
-	}
+	tm_ctlpacket_received = SysTick_GetMS();
 	pbuf_free(pb);
 }
 
@@ -99,7 +94,8 @@ void spudp_init(ip_addr_t *local_ip,ip_addr_t *server1_ip, ip_addr_t *server2_ip
 
     if(server1_ip != NULL) dt.server1.addr = server1_ip->addr;
     if(server2_ip != NULL) dt.server2.addr = server2_ip->addr;
-    dt.st = SERVER1;
+    //setting init state DISCONNECTED, and SERVER1
+    dt.st = SPUDP_SERVER1;
     dt.p = udp_new();
     if(udp_bind(dt.p,local_ip,5198) != ERR_OK){
   	  return;
@@ -112,8 +108,8 @@ void spudp_init(ip_addr_t *local_ip,ip_addr_t *server1_ip, ip_addr_t *server2_ip
     }
     udp_recv(pctl,handleControlInput,NULL);
     //init timers
-    tm_ctlpacket_sent = sys_now();
-    tm_ctlpacket_received = sys_now();
+    tm_ctlpacket_sent = SysTick_GetMS();
+    tm_ctlpacket_received = SysTick_GetMS();
 
 }
 
@@ -122,7 +118,7 @@ void spudp_deinit(){
 	speex_encoder_destroy(enc_state);
 	udp_remove(dt.p);
 	dt.p = 0;
-	dt.st = DISCONNECTED;
+	dt.st = SPUDP_SERVER1;
 }
 
 uint32_t spudp_send(char *id, char *gid, char *id2, int16_t *samples, uint32_t len){
@@ -163,7 +159,18 @@ uint32_t spudp_send(char *id, char *gid, char *id2, int16_t *samples, uint32_t l
 		nbytes = speex_bits_write(&enc_bits,&enc[c],256);
 	}
 	speex_bits_reset(&enc_bits);
-	udp_connect(dt.p,&dt.server1,5198);
+	if(dt.st & SPUDP_CONNECTED){
+		if((dt.st & SPUDP_SERVER_MASK) == SPUDP_SERVER1){
+			udp_connect(dt.p,&dt.server1,5198);
+		}
+		else if ((dt.st & SPUDP_SERVER_MASK) == SPUDP_SERVER2){
+			udp_connect(dt.p,&dt.server2,5198);
+		}
+		else {
+			//errror or we are in DISCONNECTED state
+			return 0;
+		}
+	}
 	struct pbuf *pb;
 	pb = pbuf_alloc(PBUF_TRANSPORT,nbytes+all_len,PBUF_RAM);
 	memcpy(pb->payload,enc,all_len+nbytes);
@@ -176,18 +183,19 @@ uint32_t spudp_send(char *id, char *gid, char *id2, int16_t *samples, uint32_t l
 	return len;
 }
 
+
 /*
- *
+ * Transfer information from station to server
  */
 
 uint32_t spudp_string_send(uint8_t *buf, uint32_t len){
 	assert(buf != NULL);
 	assert(len > 0);
 	assert(len < 256);
-	if(dt.st == SERVER1){
+	if((dt.st & SPUDP_SERVER_MASK) == SPUDP_SERVER1){
 		udp_connect(pctl,&dt.server1,5199);
 	}
-	else if (dt.st == SERVER2){
+	else if ((dt.st & SPUDP_SERVER_MASK) == SPUDP_SERVER2){
 		udp_connect(pctl,&dt.server2,5199);
 	}
 	else {
@@ -211,48 +219,61 @@ uint32_t spudp_string_send(uint8_t *buf, uint32_t len){
  * Function for periodic sending of the control packets
  */
 
-
 void spudp_control_send(){
 	uint32_t payload[] = {1,2,3,4,5,6,7,8};
 	/*
 	 * send syncro packet
 	 * if time since last sending is greater than 5s
-	 * and last response from server is received
 	 */
 
-	if((sys_now() - tm_ctlpacket_sent) > 5000){
-		if(tm_ctlpacket_sent <= tm_ctlpacket_received){
-			/*
-			 * we received last response from server
-			 * we are sending another chalenge
-			 */
-			if(spudp_string_send((uint8_t *)payload,32) < 0){
-
+	if((SysTick_GetMS() - tm_ctlpacket_sent) > 5000){
+		/*
+		 * last response from server is received
+		 * CONNECTED STATE
+		 */
+		if(dt.st & SPUDP_CONNECTED){
+			//unless we haven't received response
+			//WE NEED turn off CONNECTED STATE
+			if((SysTick_GetMS()-tm_ctlpacket_received) > 10000){
+				dt.st &= ~(SPUDP_CONNECTED);
+				//SERVER1 --> SERVER2
+				if((dt.st & SPUDP_SERVER_MASK) == SPUDP_SERVER1){
+					dt.st = SPUDP_SERVER2;
+				}
+				//SERVER2 --> SERVER1
+				else if((dt.st & SPUDP_SERVER_MASK) == SPUDP_SERVER2){
+					dt.st = SPUDP_SERVER1;
+				}
+				//SOME OTHER SERVER --> ERROR
+				else{
+					dt.st = SPUDP_SERVER1;
+				}
 			}
-			tm_ctlpacket_sent = sys_now();
 		}
-		else{
-			/*
-			 * we haven't received response from server so far
-			 * we are changing server
-			 * we are sending another chalenge
-			 */
-			if(dt.st == SERVER1){
-				dt.st = SERVER2;
+		/*
+		 * last response from server is NOT received
+		 * DISCONNECTED STATE
+		 */
+		else {
+			//SERVER1 --> SERVER2
+			if((dt.st & SPUDP_SERVER_MASK) == SPUDP_SERVER1){
+				dt.st = SPUDP_SERVER2;
 			}
-			else if (dt.st == SERVER2){
-				dt.st = SERVER1;
+			//SERVER2 --> SERVER1
+			else if((dt.st & SPUDP_SERVER_MASK) == SPUDP_SERVER2){
+				dt.st = SPUDP_SERVER1;
 			}
-			else {
-				//errror
+			//SOME OTHER SERVER --> ERROR
+			else{
+				dt.st = SPUDP_SERVER1;
 			}
-			if(spudp_string_send((uint8_t *)payload,32) < 0){
 
-			}
-			tm_ctlpacket_sent = sys_now();
 		}
+		if(spudp_string_send((uint8_t *)payload,32) > 0){
+			tm_ctlpacket_sent = SysTick_GetMS();
+		}
+
 	}
-
 }
 
 

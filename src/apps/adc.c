@@ -26,6 +26,8 @@ volatile uint8_t n_conv_finished;
 void ADC_init(uint8_t adc_port, uint8_t adc_pin,
 		ADC_CHANNEL_T ch, uint32_t rate,
 		adc_finished fn, void *arg){
+	NVIC_DisableIRQ(ADC_IRQn);
+	__disable_irq();
 	ADC_CLOCK_SETUP_T ADCSetup;
 	ADCSetup.adcRate = rate;
 	ADCSetup.bitsAccuracy = 12;
@@ -47,6 +49,7 @@ void ADC_init(uint8_t adc_port, uint8_t adc_pin,
 	arg_callback = arg;
 	block_fill = &x1[0];
 	block_result = &x2[0];
+	__enable_irq();
 	return;
 }
 
@@ -73,8 +76,8 @@ void ADC_error(){
 
 
 void ADC_IRQHandler(){
-
 	ADC_start(ADC_CH2);
+	__disable_irq();
 	static uint32_t nSamples = 0;
 	uint16_t uaccept;
 	uaccept = LPC_ADC->DR[ADC_CH2];
@@ -96,5 +99,6 @@ void ADC_IRQHandler(){
 		n_conv_finished++;
 		nSamples = 0;
 	}
+	__enable_irq();
 	return;
 }

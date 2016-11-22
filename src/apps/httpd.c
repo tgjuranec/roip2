@@ -73,19 +73,25 @@ const static char pg_form16[] = "\"><br>\
 const static char pg_form17[] = "\"><input type=\"text\" name=\"ip_server22\" maxlength=\"3\" size=\"3\" value=\"";
 const static char pg_form18[] = "\"><input type=\"text\" name=\"ip_server23\" maxlength=\"3\" size=\"3\" value=\"";
 const static char pg_form19[] = "\"><input type=\"text\" name=\"ip_server24\" maxlength=\"3\" size=\"3\" value=\"";
+const static char pg_change_pass_req[] = "<br><br><a href=\"change_pass.cgi\">Change password</a>";
 
-const static char pg_form22[] = "\"><br> <br>\
+
+
+const static char pg_form_pass_change[] = "<form action=\"pass_set.cgi\">";
+const static char pg_form22[] = "<br>\
 		Old password: <input type=\"password\" name=\"old_password\" maxlength=\"15\" size=\"15\" value=\"";
 const static char pg_form20[] = "\"><br>\
 		New password: <input type=\"password\" name=\"new_password\" maxlength=\"15\" size=\"15\" value=\"";
 const static char pg_form21[] = "\"><br>\
 		Confirm new password: <input type=\"password\" name=\"confirm_password\" maxlength=\"15\" size=\"15\" value=\"";
 
+
 const static char pg_changed_configuration[] = "<p>Please wait, chip is going to reset.</p>";
 const static char pg_wrong_password[] = "<p>You've just entered the wrong password!</p>";
 const static char pg_change_password_unsuccessful[] = "<p>There was an error changing password!</p>";
 const static char pg_no_changed_password[] = "<p>Password had NOT been changed.</p>";
 const static char pg_changed_password[] = "<p>Password has been changed.</p>";
+const static char pg_unknown_rq[] = "<p>Unknown request. Please, try again.</p>";
 
 const static char pg_form_tail[] = "\"><br>\
 		<input type=\"submit\" value=\"APPLY\">\
@@ -149,6 +155,8 @@ char ip_server24[4];
 const static char request[] = "GET /";
 const static char pass_sent[] = "pass_sent.cgi";
 const static char ip_set[] = "ip_set.cgi";
+const static char change_pass[] = "change_pass.cgi";
+const static char pass_set[] = "pass_set.cgi";
 
 char outdata[3072];
 
@@ -215,7 +223,7 @@ http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 					end_of_string = new_setup;
 					FIND_SPACE(end_of_string,packet_end);
 					new_setup++;
-					if(strncmp(pass,new_setup,end_of_string-new_setup) == 0){
+					if((strncmp(pass,new_setup,strlen(pass)) == 0) && ((end_of_string-new_setup) == strlen(pass))){
 						/*PASS OK*/
 						st = PASS_SENT;
 						//GET IP ADDRESSES
@@ -253,7 +261,7 @@ http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 						sprintf(ip_server23,"%u",ip4_addr3(&server2_ip));
 						sprintf(ip_server24,"%u",ip4_addr4(&server2_ip));
 
-						/*password OK*/
+
 						outdata[0] = 0;
 						strcat(outdata,pg_header);
 						strcat(outdata,pg_form0);
@@ -296,10 +304,8 @@ http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 						strcat(outdata,ip_server23);
 						strcat(outdata,pg_form19);
 						strcat(outdata,ip_server24);
-						strcat(outdata,pg_form22);
-						strcat(outdata,pg_form20);
-						strcat(outdata,pg_form21);
 						strcat(outdata,pg_form_tail);
+						strcat(outdata,pg_change_pass_req);
 						strcat(outdata,pg_tail);
 					}
 					else{
@@ -326,16 +332,18 @@ http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 					}
 				}
 
-				//'GET /ip_set.cgi' CHANGING network configuration, and Password
+				//'GET /ip_set.cgi' CHANGING network configuration
 				else if (strncmp(&rq[5],ip_set,strlen(ip_set)) == 0){
 					if(st == PASS_SENT){
 						st = CONFIG_CHANGED;
 						/*
 						 * PARSING incoming data
 						 */
-						char *new_setup = &rq[26]; //new setup starts at the 17th character of the request (rq[16])
+						char *new_setup = &rq[26]; //new setup starts at the 26th character of the request (rq[26])
 						char **delimiter = &new_setup;
-
+						/*
+						 * TODO: test input strings obligatory
+						 */
 						uint8_t ip1,ip2,ip3,ip4;
 						ip_addr_t ip_tmplocal, ip_tmpgw, ip_tmpnm, ip_tmpser1,ip_tmpser2;
 						ip1 = (uint8_t) (strtoul(new_setup,delimiter,10) & 0xFF);
@@ -392,8 +400,6 @@ http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 						new_setup++;
 						IP4_ADDR(&ip_tmpnm,ip1,ip2,ip3,ip4);
 
-
-
 						//set servers
 						ip1 = (uint8_t) (strtoul(new_setup,delimiter,10) & 0xFF);
 						new_setup = (*delimiter);
@@ -432,58 +438,6 @@ http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 						outdata[0] = 0;
 						strcat(outdata,pg_header);
 						strcat(outdata,pg_changed_configuration);
-
-						/*
-						 * find start end end of password string in the payload
-						 * start - new_setup
-						 * end - end_of_string
-						 * copy into new_password string
-						 */
-						char old_password[16],new_password[16],confirm_password[16];
-						FIND_EQUALS(new_setup,packet_end);
-						/*
-						 * TESTING if we are changing the password
-						 */
-
-						if(*(new_setup+1) != '&'){
-							/*
-							 * Attempt to change the password
-							 */
-							end_of_string = new_setup;
-							FIND_AMPERSAND(end_of_string,packet_end);
-							new_setup++;
-							memcpy(old_password,new_setup,end_of_string-new_setup);
-							old_password[end_of_string-new_setup] = 0;
-							FIND_EQUALS(new_setup,packet_end);
-							end_of_string = new_setup;
-							FIND_AMPERSAND(end_of_string,packet_end);
-							new_setup++;
-							memcpy(new_password,new_setup,end_of_string-new_setup);
-							new_password[end_of_string-new_setup] = 0;
-							FIND_EQUALS(new_setup,packet_end);
-							end_of_string = new_setup;
-							FIND_SPACE(end_of_string,packet_end);
-							new_setup++;
-							memcpy(confirm_password,new_setup,end_of_string-new_setup);
-							confirm_password[end_of_string-new_setup] = 0;
-							/*
-							 * testing whether the new_ i confirm_password are identical and not equal '0'
-							 */
-							if((strncmp(new_password,confirm_password,end_of_string-new_setup) == 0) && (strlen(new_password) != 0)){
-								/*change password OK*/
-								memcpy(fd->password,new_password,strlen(new_password));
-								fd->password[strlen(new_password)] = 0;
-								strcat(outdata,pg_changed_password);
-							}
-							else{
-								/*some error in changing password*/
-								strcat(outdata,pg_change_password_unsuccessful);
-							}
-						}
-						else {
-							/*we don't change the password*/
-							strcat(outdata,pg_no_changed_password);
-						}
 						strcat(outdata,pg_tail);
 						struct flash_data *fd = (struct flash_data *) flash_buff;
 						ip_addr_copy(fd->ip_local,ip_tmplocal);
@@ -518,6 +472,115 @@ http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 					}
 
 				}
+
+
+				//'GET /change_pass.cgi' CHANGING Password
+				else if (strncmp(&rq[5],change_pass,strlen(change_pass)) == 0){
+					if(st == PASS_SENT){
+						outdata[0] = 0;
+						strcat(outdata,pg_header);
+						strcat(outdata,pg_form_pass_change);
+						strcat(outdata,pg_form22);
+						strcat(outdata,pg_form20);
+						strcat(outdata,pg_form21);
+						strcat(outdata,pg_form_tail);
+						strcat(outdata,pg_tail);
+					}
+					else{
+						/*password wrong*/
+						st = DISCONNECTED;
+						outdata[0] = 0;
+						strcat(outdata,pg_header);
+						strcat(outdata,pg_wrong_password);
+						strcat(outdata,pg_tail);
+					}
+					uint8_t error = 0;
+					if(tcp_write(pcb, outdata, strlen(outdata), TCP_WRITE_FLAG_COPY) != ERR_OK){
+						//ERROR
+						error++;
+					}
+					if(tcp_output(pcb) != ERR_OK){
+						//ERROR
+						error++;
+					}
+					/* Close the connection. */
+					if(tcp_close(pcb) != ERR_OK){
+						error++;
+					}
+				}
+
+				//'GET /pass_set.cgi' CHANGING Password
+				else if (strncmp(&rq[5],pass_set,strlen(pass_set)) == 0){
+					if(st == PASS_SENT){
+						char old_password[16],new_password[16],confirm_password[16];
+						old_password[0] = 0;
+						new_password[0] = 0;
+						confirm_password[0] = 0;
+						outdata[0] = 0;
+						strcat(outdata,pg_header);
+						/*
+						 * parsing the incomimg passwords
+						 */
+						char *new_setup = &rq[17];
+						FIND_EQUALS(new_setup,packet_end);
+						new_setup++;
+						end_of_string = new_setup;
+						FIND_AMPERSAND(end_of_string,packet_end);
+						memcpy(old_password,new_setup,end_of_string-new_setup);
+						old_password[end_of_string-new_setup] = 0;
+						FIND_EQUALS(new_setup,packet_end);
+						new_setup++;
+						end_of_string = new_setup;
+						FIND_AMPERSAND(end_of_string,packet_end);
+						memcpy(new_password,new_setup,end_of_string-new_setup);
+						new_password[end_of_string-new_setup] = 0;
+						FIND_EQUALS(new_setup,packet_end);
+						new_setup++;
+						end_of_string = new_setup;
+						FIND_SPACE(end_of_string,packet_end);
+						memcpy(confirm_password,new_setup,end_of_string-new_setup);
+						confirm_password[end_of_string-new_setup] = 0;
+						/*
+						 * testing whether the new_ i confirm_password are identical and not equal '0'
+						 */
+						if((strncmp(new_password,confirm_password,strlen(new_password)) == 0) && (strlen(new_password) != 0)){
+							/*change password OK*/
+							struct flash_data *fd = (struct flash_data *) flash_buff;
+							memcpy(fd->password,new_password,strlen(new_password));
+							fd->password[strlen(new_password)] = 0;
+							strcat(outdata,pg_changed_password);
+							write_flash();
+						}
+						else{
+							/*change password ERROR*/
+							strcat(outdata,pg_change_password_unsuccessful);
+						}
+						strcat(outdata,pg_tail);
+					}
+					else{
+						/*password wrong*/
+						outdata[0] = 0;
+						strcat(outdata,pg_header);
+						strcat(outdata,pg_wrong_password);
+						strcat(outdata,pg_tail);
+					}
+					st = DISCONNECTED;
+					uint8_t error = 0;
+					if(tcp_write(pcb, outdata, strlen(outdata), TCP_WRITE_FLAG_COPY) != ERR_OK){
+						//ERROR
+						error++;
+					}
+					if(tcp_output(pcb) != ERR_OK){
+						//ERROR
+						error++;
+					}
+					/* Close the connection. */
+					if(tcp_close(pcb) != ERR_OK){
+						error++;
+					}
+				}
+
+
 				else{
 
 				}

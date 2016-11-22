@@ -32,12 +32,12 @@ void serial_init(){
 	Chip_GPIO_SetPinDIROutput(LPC_GPIO,0,15);
 	Chip_IOCON_PinMux(LPC_IOCON,0,15,0,IOCON_FUNC1);
 	Chip_IOCON_PinMux(LPC_IOCON,0,16,0,IOCON_FUNC1);
-	//UART1 configuration
-	UART_init(LPC_UART1,UART1_IRQn,9600,UART_LCR_WLEN8 | UART_LCR_SBS_1BIT | UART_LCR_PARITY_DIS, UART_FCR_TRG_LEV3);
-	//UART_init(LPC_UART1,UART1_IRQn,4800,UART_LCR_WLEN8 | UART_LCR_SBS_1BIT | UART_LCR_PARITY_DIS, UART_FCR_TRG_LEV3);
 	//init dedicated ringbuffer
 	RingBuffer_Init(&rxring, rxbuff, 1, 256);
 	RingBuffer_Init(&txring, txbuff, 1, 192);
+	//UART1 configuration
+	UART_init(LPC_UART1,UART1_IRQn,9600,UART_LCR_WLEN8 | UART_LCR_SBS_1BIT | UART_LCR_PARITY_DIS, UART_FCR_TRG_LEV3);
+
 }
 
 
@@ -48,9 +48,11 @@ int serial_send(const uint8_t *buf, int len){
 	assert(len <= 192);
 	if(RingBuffer_GetFree(&txring) < len) return 0;	//there's not enough space
 	//move the data
+	__disable_irq();
 	int received_data = RingBuffer_InsertMult(&txring,buf,len);
 	//start first interrupt
 	Chip_UART_IntEnable(LPC_UART1, UART_IER_THREINT);
+	__enable_irq();
 	NVIC->STIR = 0X06;
 	return received_data;
 }
@@ -65,7 +67,9 @@ int serial_nitems_RB(){
 int serial_read(uint8_t *buf, int len){
 	assert(buf != NULL);
 	assert(len > 0);
+	__disable_irq();
 	int ret = RingBuffer_PopMult(&rxring,buf,len);
+	__enable_irq();
 	return ret;
 }
 
