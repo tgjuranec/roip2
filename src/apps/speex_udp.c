@@ -61,7 +61,7 @@ void handleControlInput(void *arg, struct udp_pcb *pcb, struct pbuf *pb,\
 		dt.st = SPUDP_CONNECTED | SPUDP_SERVER1;
 	}
 	else if(ip_addr_cmp(addr,&dt.server2)){
-		dt.st = SPUDP_CONNECTED | SPUDP_SERVER1;
+		dt.st = SPUDP_CONNECTED | SPUDP_SERVER2;
 	}
 	tm_ctlpacket_received = SysTick_GetMS();
 	pbuf_free(pb);
